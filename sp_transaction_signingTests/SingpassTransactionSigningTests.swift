@@ -159,14 +159,71 @@ class SingpassTransactionSigningTests: XCTestCase {
     }
     
     // MARK: - Factory Methods Tests
-    
+
     func testStagingFactory() {
         let stagingService = SingpassTransactionSigning.staging(
             clientId: "test_client",
             redirectUri: "https://test.com/redirect"
         )
-        
+
         XCTAssertNotNil(stagingService)
+    }
+
+    // MARK: - Configuration Validation Tests
+
+    func testConfigurationValidation() {
+        // Test valid configuration
+        let validConfig = SingpassConfig(
+            clientId: "valid_client_id",
+            redirectUri: "https://valid.example.com/redirect",
+            environment: .staging
+        )
+        let validService = SingpassTransactionSigning(config: validConfig)
+        XCTAssertNotNil(validService)
+
+        // Test placeholder configurations (should still work but with warnings)
+        let demoConfig = SingpassConfig(
+            clientId: "DEMO_CLIENT_ID",
+            redirectUri: "https://demo-app.example.com/redirect",
+            environment: .staging
+        )
+        let demoService = SingpassTransactionSigning(config: demoConfig)
+        XCTAssertNotNil(demoService)
+    }
+
+    func testJWTTokenGeneration() {
+        let transaction = TransactionInfo(
+            transactionId: "TEST_TXN_123",
+            instructions: "Test transaction for QR code generation",
+            hash: TransactionInfo.generateHash(transactionId: "TEST_TXN_123", instructions: "Test transaction for QR code generation"),
+            userId: nil
+        )
+
+        let networkService = NetworkService(config: testConfig)
+
+        let expectation = XCTestExpectation(description: "JWT generation should complete")
+
+        Task {
+            do {
+                let sessionParams = try await networkService.generateSessionParams(transactionInfo: transaction)
+
+                // Validate session parameters
+                XCTAssertFalse(sessionParams.state.isEmpty, "State should not be empty")
+                XCTAssertFalse(sessionParams.nonce.isEmpty, "Nonce should not be empty")
+                XCTAssertFalse(sessionParams.txnInfo.isEmpty, "JWT token should not be empty")
+
+                // Validate JWT format (should have 3 parts)
+                let jwtParts = sessionParams.txnInfo.split(separator: ".")
+                XCTAssertEqual(jwtParts.count, 3, "JWT should have 3 parts (header.payload.signature)")
+
+                expectation.fulfill()
+            } catch {
+                XCTFail("JWT generation failed: \(error)")
+                expectation.fulfill()
+            }
+        }
+
+        wait(for: [expectation], timeout: 5.0)
     }
     
     func testProductionFactory() {

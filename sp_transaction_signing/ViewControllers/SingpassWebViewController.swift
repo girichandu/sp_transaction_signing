@@ -89,18 +89,22 @@ class SingpassWebViewController: UIViewController {
     private func setupWebView() {
         let configuration = WKWebViewConfiguration()
         configuration.userContentController = WKUserContentController()
-        
+
+        // Enable debugging
+        configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
+
         // Add message handlers for JavaScript communication
         configuration.userContentController.add(self, name: "singpassCallback")
         configuration.userContentController.add(self, name: "singpassError")
-        
+        configuration.userContentController.add(self, name: "debugLog") // Add debug logging
+
         webView = WKWebView(frame: .zero, configuration: configuration)
         webView.translatesAutoresizingMaskIntoConstraints = false
         webView.navigationDelegate = self
         webView.isHidden = true
-        
+
         view.addSubview(webView)
-        
+
         NSLayoutConstraint.activate([
             webView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -203,26 +207,80 @@ class SingpassWebViewController: UIViewController {
                 <div id="error-container"></div>
             </div>
             
-            <script src="\(config.environment.jsUrl)"></script>
             <script>
+                // Debug logging function
+                function debugLog(message) {
+                    console.log('[DEBUG]', message);
+                    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.debugLog) {
+                        window.webkit.messageHandlers.debugLog.postMessage({
+                            message: message,
+                            timestamp: new Date().toISOString()
+                        });
+                    }
+                }
+
+                // Check if script loaded successfully
+                function checkScriptLoaded() {
+                    debugLog('Checking if Singpass SDK is loaded...');
+                    if (typeof window.NDI === 'undefined') {
+                        debugLog('ERROR: window.NDI is undefined - Singpass SDK not loaded');
+                        document.getElementById('error-container').innerHTML =
+                            '<div class="error">Singpass SDK failed to load. Please check your network connection.</div>';
+                        return false;
+                    }
+                    debugLog('SUCCESS: Singpass SDK loaded successfully');
+                    return true;
+                }
+
                 async function initializeSingpass() {
+                    debugLog('Starting Singpass initialization...');
+
                     try {
+                        // Wait a bit for the script to load
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+
+                        if (!checkScriptLoaded()) {
+                            return;
+                        }
+
+                        debugLog('Creating transaction params supplier...');
                         const transactionParamsSupplier = async () => {
-                            return {
+                            const params = {
                                 state: '\(sessionParams.state)',
                                 nonce: '\(sessionParams.nonce)',
                                 txnInfo: '\(sessionParams.txnInfo)'
                             };
+                            debugLog('Transaction params: ' + JSON.stringify({
+                                state: params.state.substring(0, 8) + '...',
+                                nonce: params.nonce.substring(0, 8) + '...',
+                                txnInfo: params.txnInfo.substring(0, 50) + '...'
+                            }));
+                            return params;
                         };
-                        
+
+                        debugLog('Setting up error handler...');
                         const onError = (errorId, message) => {
-                            console.error('Singpass Error:', errorId, message);
-                            window.webkit.messageHandlers.singpassError.postMessage({
-                                errorId: errorId,
-                                message: message
-                            });
+                            const errorMsg = 'Singpass Error - ID: ' + errorId + ', Message: ' + message;
+                            console.error(errorMsg);
+                            debugLog('ERROR: ' + errorMsg);
+
+                            document.getElementById('error-container').innerHTML =
+                                '<div class="error"><strong>QR Code Generation Failed</strong><br/>' +
+                                'Error ID: ' + (errorId || 'Unknown') + '<br/>' +
+                                'Message: ' + (message || 'Unknown error') + '</div>';
+
+                            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.singpassError) {
+                                window.webkit.messageHandlers.singpassError.postMessage({
+                                    errorId: errorId,
+                                    message: message
+                                });
+                            }
                         };
-                        
+
+                        debugLog('Initializing Singpass transaction signing...');
+                        debugLog('Client ID: \(config.clientId)');
+                        debugLog('Redirect URI: \(config.redirectUri)');
+
                         const result = window.NDI.initTxnSigning(
                             'singpass-qr',
                             {
@@ -235,22 +293,52 @@ class SingpassWebViewController: UIViewController {
                                 renderDownloadLink: true
                             }
                         );
-                        
-                        console.log('Singpass initialization result:', result);
-                        
-                        // Handle redirect by intercepting navigation
-                        // The Singpass JS will redirect to the configured redirectUri
-                        // We need to catch this and extract the code and state parameters
-                        
+
+                        debugLog('Singpass initialization result: ' + JSON.stringify(result));
+
+                        if (result && result.status === 'SUCCESS') {
+                            debugLog('QR code should be generated successfully');
+                        } else {
+                            debugLog('QR code generation may have failed - result: ' + JSON.stringify(result));
+                        }
+
                     } catch (error) {
-                        console.error('Initialization error:', error);
-                        document.getElementById('error-container').innerHTML = 
-                            '<div class="error">Failed to initialize Singpass: ' + error.message + '</div>';
+                        const errorMsg = 'Initialization error: ' + error.message;
+                        console.error(errorMsg);
+                        debugLog('FATAL ERROR: ' + errorMsg);
+
+                        document.getElementById('error-container').innerHTML =
+                            '<div class="error"><strong>Initialization Failed</strong><br/>' +
+                            'Error: ' + error.message + '<br/>' +
+                            'Please check the console for more details.</div>';
                     }
                 }
-                
+
+                // Load the Singpass SDK
+                function loadSingpassSDK() {
+                    debugLog('Loading Singpass SDK from: \(config.environment.jsUrl)');
+
+                    const script = document.createElement('script');
+                    script.src = '\(config.environment.jsUrl)';
+                    script.onload = function() {
+                        debugLog('Singpass SDK script loaded successfully');
+                        initializeSingpass();
+                    };
+                    script.onerror = function() {
+                        debugLog('ERROR: Failed to load Singpass SDK script');
+                        document.getElementById('error-container').innerHTML =
+                            '<div class="error"><strong>SDK Loading Failed</strong><br/>' +
+                            'Could not load Singpass SDK from: \(config.environment.jsUrl)<br/>' +
+                            'Please check your network connection and configuration.</div>';
+                    };
+                    document.head.appendChild(script);
+                }
+
                 // Initialize when page loads
-                window.addEventListener('load', initializeSingpass);
+                window.addEventListener('load', function() {
+                    debugLog('Page loaded, starting SDK loading...');
+                    loadSingpassSDK();
+                });
             </script>
         </body>
         </html>
@@ -311,38 +399,117 @@ class SingpassWebViewController: UIViewController {
 // MARK: - WKNavigationDelegate
 
 extension SingpassWebViewController: WKNavigationDelegate {
-    
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        print("✅ WebView finished loading")
         loadingIndicator.stopAnimating()
         webView.isHidden = false
         statusLabel.isHidden = true
+
+        // Check if the page loaded successfully by evaluating some JavaScript
+        webView.evaluateJavaScript("document.readyState") { result, error in
+            if let error = error {
+                print("❌ WebView JavaScript evaluation error: \(error)")
+            } else {
+                print("✅ WebView ready state: \(result ?? "unknown")")
+            }
+        }
     }
-    
+
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        print("❌ WebView navigation failed: \(error.localizedDescription)")
         handleError(TransactionSigningError.webViewLoadFailed)
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        print("❌ WebView provisional navigation failed: \(error.localizedDescription)")
+        handleError(TransactionSigningError.webViewLoadFailed)
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        guard let url = navigationAction.request.url else {
+            decisionHandler(.allow)
+            return
+        }
+
+        print("🔍 WebView navigation to: \(url.absoluteString)")
+
+        // Check if this is a redirect to our redirect URI
+        if url.absoluteString.hasPrefix(config.redirectUri) {
+            print("✅ Detected redirect to configured URI: \(config.redirectUri)")
+
+            // Extract code and state from URL parameters
+            if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+               let queryItems = components.queryItems {
+
+                var code: String?
+                var state: String?
+
+                for item in queryItems {
+                    if item.name == "code" {
+                        code = item.value
+                    } else if item.name == "state" {
+                        state = item.value
+                    }
+                }
+
+                if let code = code, let state = state {
+                    print("✅ Extracted code and state from redirect")
+                    handleSuccess(signCode: code, state: state)
+                } else {
+                    print("❌ Failed to extract code or state from redirect URL")
+                    handleError(TransactionSigningError.unknownError("Invalid redirect parameters"))
+                }
+            }
+
+            decisionHandler(.cancel)
+            return
+        }
+
+        decisionHandler(.allow)
     }
 }
 
 // MARK: - WKScriptMessageHandler
 
 extension SingpassWebViewController: WKScriptMessageHandler {
-    
+
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let body = message.body as? [String: Any] else { return }
-        
+
         switch message.name {
         case "singpassCallback":
             if let code = body["code"] as? String,
                let state = body["state"] as? String {
+                print("✅ Singpass callback received - Code: \(code.prefix(8))..., State: \(state.prefix(8))...")
                 handleSuccess(signCode: code, state: state)
             }
-            
+
         case "singpassError":
-            let errorId = body["errorId"] as? String
+            let errorId = body["errorId"] as? String ?? "UNKNOWN"
             let errorMessage = body["message"] as? String ?? "Unknown error"
-            let error = TransactionSigningError.unknownError(errorMessage)
+            print("❌ Singpass error - ID: \(errorId), Message: \(errorMessage)")
+
+            // Create more specific error based on error ID
+            let error: TransactionSigningError
+            if errorId.contains("INVALID_CLIENT") || errorId.contains("CLIENT") {
+                error = .invalidConfiguration
+            } else if errorId.contains("JWT") || errorId.contains("TOKEN") {
+                error = .jwtCreationFailed
+            } else if errorId.contains("NETWORK") || errorId.contains("CONNECTION") {
+                error = .networkError(errorMessage)
+            } else {
+                error = .unknownError("[\(errorId)] \(errorMessage)")
+            }
+
             handleError(error)
-            
+
+        case "debugLog":
+            if let logMessage = body["message"] as? String,
+               let timestamp = body["timestamp"] as? String {
+                print("🔍 [WebView Debug] \(timestamp): \(logMessage)")
+            }
+
         default:
             break
         }

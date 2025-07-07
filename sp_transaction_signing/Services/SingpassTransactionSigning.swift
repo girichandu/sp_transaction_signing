@@ -75,7 +75,46 @@ class SingpassTransactionSigning {
     // MARK: - Private Methods
     
     private func isConfigurationValid() -> Bool {
-        return !config.clientId.isEmpty && !config.redirectUri.isEmpty
+        print("🔍 Validating Singpass configuration...")
+
+        // Check client ID
+        guard !config.clientId.isEmpty else {
+            print("❌ Configuration invalid: Client ID is empty")
+            return false
+        }
+
+        guard config.clientId != "YOUR_CLIENT_ID" && config.clientId != "DEMO_CLIENT_ID" else {
+            print("⚠️ Configuration warning: Using placeholder Client ID (\(config.clientId))")
+            print("📝 Please replace with your actual Singpass Client ID")
+            // Allow demo to continue but warn user
+        }
+
+        // Check redirect URI
+        guard !config.redirectUri.isEmpty else {
+            print("❌ Configuration invalid: Redirect URI is empty")
+            return false
+        }
+
+        guard config.redirectUri != "https://your-app.com/redirect" &&
+              config.redirectUri != "https://demo-app.example.com/redirect" else {
+            print("⚠️ Configuration warning: Using placeholder Redirect URI (\(config.redirectUri))")
+            print("📝 Please replace with your actual registered redirect URI")
+            // Allow demo to continue but warn user
+        }
+
+        // Validate redirect URI format
+        guard let url = URL(string: config.redirectUri),
+              url.scheme == "https" else {
+            print("❌ Configuration invalid: Redirect URI must be a valid HTTPS URL")
+            return false
+        }
+
+        print("✅ Configuration validation passed")
+        print("🔍 Client ID: \(config.clientId)")
+        print("🔍 Redirect URI: \(config.redirectUri)")
+        print("🔍 Environment: \(config.environment)")
+
+        return true
     }
     
     private func handleSigningResult(_ result: TransactionSigningResult, completion: @escaping TransactionSigningCompletion) {

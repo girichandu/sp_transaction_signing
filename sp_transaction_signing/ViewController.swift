@@ -36,11 +36,16 @@ class ViewController: UIViewController {
 
     private func setupSingpassService() {
         // Configure for staging environment
-        // Replace with your actual client ID and redirect URI
+        // For demo purposes, using test values - replace with your actual credentials
         singpassService = SingpassTransactionSigning.staging(
-            clientId: "YOUR_CLIENT_ID", // Replace with your actual client ID
-            redirectUri: "https://your-app.com/redirect" // Replace with your actual redirect URI
+            clientId: "DEMO_CLIENT_ID", // Replace with your actual client ID from Singpass
+            redirectUri: "https://demo-app.example.com/redirect" // Replace with your actual redirect URI
         )
+
+        // Show configuration warning
+        print("⚠️ WARNING: Using demo configuration. Please update with your actual Singpass credentials.")
+        print("📝 Client ID: DEMO_CLIENT_ID (replace with actual)")
+        print("📝 Redirect URI: https://demo-app.example.com/redirect (replace with actual)")
     }
 
     private func setupUI() {

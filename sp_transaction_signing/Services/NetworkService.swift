@@ -30,19 +30,39 @@ class NetworkService {
     
     /// Generate session parameters for transaction signing
     func generateSessionParams(transactionInfo: TransactionInfo) async throws -> TransactionSessionParams {
+        print("🔄 Generating session parameters...")
+
         // Generate unique state and nonce
         let state = generateSecureRandomString(length: 32)
         let nonce = generateSecureRandomString(length: 32)
-        
+
+        print("✅ Generated state: \(state.prefix(8))...")
+        print("✅ Generated nonce: \(nonce.prefix(8))...")
+
         // Create JWT token
         // Note: In production, this should be done on your backend server
+        print("🔄 Creating JWT token...")
         let txnInfo = DemoJWTHelper.createDemoJWT(transactionInfo: transactionInfo, clientId: config.clientId)
-        
+
         guard !txnInfo.isEmpty else {
+            print("❌ JWT creation failed - empty token")
             throw TransactionSigningError.jwtCreationFailed
         }
-        
-        return TransactionSessionParams(state: state, nonce: nonce, txnInfo: txnInfo)
+
+        // Validate JWT format (should have 3 parts separated by dots)
+        let jwtParts = txnInfo.split(separator: ".")
+        guard jwtParts.count == 3 else {
+            print("❌ JWT validation failed - invalid format (expected 3 parts, got \(jwtParts.count))")
+            throw TransactionSigningError.jwtCreationFailed
+        }
+
+        print("✅ JWT token created successfully (length: \(txnInfo.count))")
+        print("🔍 JWT preview: \(txnInfo.prefix(50))...")
+
+        let sessionParams = TransactionSessionParams(state: state, nonce: nonce, txnInfo: txnInfo)
+        print("✅ Session parameters generated successfully")
+
+        return sessionParams
     }
     
     // MARK: - Transaction Signature Exchange
