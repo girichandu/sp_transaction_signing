@@ -83,7 +83,7 @@ class SingpassTransactionSigning {
             return false
         }
 
-        guard config.clientId != "YOUR_CLIENT_ID" && config.clientId != "DEMO_CLIENT_ID" else {
+        if config.clientId == "YOUR_CLIENT_ID" || config.clientId == "DEMO_CLIENT_ID" {
             print("⚠️ Configuration warning: Using placeholder Client ID (\(config.clientId))")
             print("📝 Please replace with your actual Singpass Client ID")
             // Allow demo to continue but warn user
@@ -95,8 +95,8 @@ class SingpassTransactionSigning {
             return false
         }
 
-        guard config.redirectUri != "https://your-app.com/redirect" &&
-              config.redirectUri != "https://demo-app.example.com/redirect" else {
+        if config.redirectUri == "https://your-app.com/redirect" ||
+           config.redirectUri == "https://demo-app.example.com/redirect" {
             print("⚠️ Configuration warning: Using placeholder Redirect URI (\(config.redirectUri))")
             print("📝 Please replace with your actual registered redirect URI")
             // Allow demo to continue but warn user
